@@ -57,10 +57,10 @@ class IndexSquareDataSet(Dataset):
 
 class IndexCornersDataSet(Dataset):
 
-    def __init__(self, size=28, line=2, random_sample=False, len_data_set=100):
+    def __init__(self, size=28, line=2, random_sample=False, len_data_set=100, per=10, scaled=True):
         self.samples = []
         for i in range(len_data_set):
-            self.samples.append((image_to_index(create_corners(size, line, random_sample).unsqueeze(0)), 1))
+            self.samples.append((image_to_index(create_corners(size, line, random_sample, per, scaled).unsqueeze(0)), 1))
 
     def __len__(self):
         return len(self.samples)
@@ -69,14 +69,18 @@ class IndexCornersDataSet(Dataset):
         return self.samples[idx]
 
 
-def create_corners(size=28, line=2, random_sample=False):
-    per = 70
+def create_corners(size=28, line=2, random_sample=False, per=10, scaled=True):
     base = np.random.uniform(0.0, 0.0, (size, size))
-    if random_sample is True:
+    if random_sample:
         h_start = random.randint(1, int(size - 2 * line - 2))
         h_finish = random.randint(int(h_start + line + 1), int(size - line - 1))
         w_start = random.randint(1, int(size - 2 * line - 2))
         w_finish = random.randint(int(w_start + line + 1), int(size - line - 1))
+    elif scaled:
+        h_start = 2
+        h_finish = 12
+        w_start = 2
+        w_finish = 12
     else:
         h_start = 4
         h_finish = 24
@@ -327,8 +331,8 @@ class TopDownNet(nn.Module):
     def __init__(self, categories):
         super(TopDownNet, self).__init__()
         self.fc1 = nn.Linear(categories, int(10 * 4.3))
-        self.fc2 = nn.Linear(int(10 * 4.3), int(10 * 4.3 * 4.3))
-        self.fc3 = nn.Linear(int(10 * 4.3 * 4.3), 784 * 3)
+        self.fc2 = nn.Linear(int(10 * 4.3), int(10 * 4.3))
+        self.fc3 = nn.Linear(int(10 * 4.3), 4)
 
     def forward(self, x):
         x = F.softmax(x)
@@ -337,7 +341,6 @@ class TopDownNet(nn.Module):
         x = self.fc2(x)
         x = F.relu(x)
         x = self.fc3(x)
-        x = x.view(-1, 784, 3)
         x = x.float()
         return x
 
@@ -364,6 +367,20 @@ class SlowNet(nn.Module):
             p.requires_grad = True
 
 
+def index_scaling(image, output_top_down):
+    output_top_down = output_top_down[0]
+    image = image[0]
+    scaling = torch.ones((784, 3))
+    scaling[:, 1] = F.relu(output_top_down[0] + 1.0)
+    scaling[:, 2] = F.relu(output_top_down[1] + 1.0)
+    translation = torch.zeros((784, 3))
+    translation[:, 1] = output_top_down[2]
+    translation[:, 2] = output_top_down[3]
+    image = (image + translation) * scaling
+    image = image.unsqueeze(0)
+    return image
+
+
 def image_to_index(image):
     image = image[0]
     index_image = []
@@ -378,7 +395,7 @@ def image_to_index(image):
 
 def index_to_image(index_image):
     index_image = index_image[0]
-    index_image[:, 1:3] = (index_image[:, 1:3]) * 27
+    index_image[:, 1:3] = ((index_image[:, 1:3]) * 27)
     index_image[:, 0] = index_image[:, 0]
     image = np.zeros((28, 28))
     for index in index_image:
@@ -391,7 +408,7 @@ def biased_loss(output_fast, output_check):
     # criterion = nn.CrossEntropyLoss()
     # loss = criterion(output_fast, torch.tensor([1]))
     criterion = nn.MSELoss()
-    loss = criterion(output_fast, output_check)/1000
+    loss = criterion(output_fast, output_check)
     return loss
 
 
@@ -457,7 +474,7 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
     print("Supervised Training")
     fast_net.unfreeze()
     fast_net.train()
-    fast_net_optimizer = optim.RMSprop(fast_net.parameters(), lr=lr_fast)
+    fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
     criterion = nn.CrossEntropyLoss()
     if from_files is True:
         print("Loading parameters")
@@ -495,7 +512,7 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
 def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
                                   editing_steps, lr, threshold, show_image, print_values):
     print("Unsupervised Training")
-    check_fast(slow_net=slow_net, line=line)
+    output_check = check_fast(slow_net=slow_net, line=line)
     slow_net.freeze_fast()
     slow_net_optimizer = optim.Adam(filter(lambda p: p.requires_grad, slow_net.parameters()), lr=lr)
     slow_net.unfreeze_fast()
@@ -512,9 +529,9 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
             while loss_output.item() > threshold and mini_epochs_index >= 0:
                 slow_net.train()
                 slow_net_optimizer.zero_grad()
-                image = (image + output_top_down)/torch.max(image + output_top_down)
+                image = index_scaling(image, output_top_down)/torch.max(index_scaling(image, output_top_down))
                 output_fast, output_top_down = slow_net(image)
-                loss_output = criterion_output_loss(output_fast)
+                loss_output = biased_loss(output_fast, output_check)
                 loss_output.backward(retain_graph=True)
                 slow_net_optimizer.step()
                 if print_values is True:
@@ -534,10 +551,10 @@ def __main__(categories=2, line=2,
              count_unsupervised=1,
              lr_supervised=0.001, lr_unsupervised=0.01,
              random_sample=False, batch_size=25,
-             num_epochs_supervised=1, print_values_supervised=True,
+             num_epochs_supervised=100, print_values_supervised=True,
              from_files_supervised=True, save_files_supervised=True,
              num_epochs_unsupervised=1, threshold=-1,
-             editing_steps=20,
+             editing_steps=20, per=0, scaled=True,
              show_image=True, print_values_unsupervised=True,
              super_epochs=1):
     fast_net = FastNet(categories=categories)
@@ -550,7 +567,8 @@ def __main__(categories=2, line=2,
                                     from_files=from_files_supervised, save_files=save_files_supervised,
                                     batch_size=batch_size)
         slow_net = SlowNet(fast_net, top_down_net)
-        data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample)
+        data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample,
+                                       per=per, scaled=scaled)
         unsupervised_train_iterations(data_set=data_set, slow_net=slow_net,
                                       num_epochs=num_epochs_unsupervised,
                                       print_values=print_values_unsupervised,
