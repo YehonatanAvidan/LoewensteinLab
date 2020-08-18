@@ -70,7 +70,7 @@ class IndexCornersDataSet(Dataset):
 
 
 def create_corners(size=28, line=2, random_sample=False):
-    per = 0
+    per = 70
     base = np.random.uniform(0.0, 0.0, (size, size))
     if random_sample is True:
         h_start = random.randint(1, int(size - 2 * line - 2))
@@ -78,10 +78,10 @@ def create_corners(size=28, line=2, random_sample=False):
         w_start = random.randint(1, int(size - 2 * line - 2))
         w_finish = random.randint(int(w_start + line + 1), int(size - line - 1))
     else:
-        h_start = 2
-        h_finish = 12
-        w_start = 2
-        w_finish = 12
+        h_start = 4
+        h_finish = 24
+        w_start = 4
+        w_finish = 24
     for i in range(w_start, w_finish + line):
         if i < w_start + line + 1 or i > w_finish - 2:
             for j in range(0, line):
@@ -331,6 +331,7 @@ class TopDownNet(nn.Module):
         self.fc3 = nn.Linear(int(10 * 4.3 * 4.3), 784 * 3)
 
     def forward(self, x):
+        x = F.softmax(x)
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
@@ -377,19 +378,20 @@ def image_to_index(image):
 
 def index_to_image(index_image):
     index_image = index_image[0]
-    index_image = index_image.float()
     index_image[:, 1:3] = (index_image[:, 1:3]) * 27
     index_image[:, 0] = index_image[:, 0]
-    image = torch.zeros(28, 28)
+    image = np.zeros((28, 28))
     for index in index_image:
         if 0 <= index[1] <= 27 and 0 <= index[2] <= 27:
             image[int(index[1]), int(index[2])] = index[0]
     return image
 
 
-def biased_loss(x, output_check):
+def biased_loss(output_fast, output_check):
+    # criterion = nn.CrossEntropyLoss()
+    # loss = criterion(output_fast, torch.tensor([1]))
     criterion = nn.MSELoss()
-    loss = 10 * criterion(x, output_check)
+    loss = criterion(output_fast, output_check)/1000
     return loss
 
 
@@ -420,11 +422,12 @@ def check_fast(slow_net, line):
     output_fast, __ = slow_net(test_image)
     output_fast_array = np.array(output_fast.detach())
     print("Check_" + str(output_fast_array))
+    return output_fast
 
 
 def save_image(image, mini_epochs_index, decision):
-    plt_image = np.array(image[0].squeeze().detach())
-    plt.imshow(plt_image, cmap="gray")
+    image = image[0].detach()
+    plt.imshow(image, cmap="gray")
     plt.savefig("content/drive/My Drive/Colab Notebooks/fast_slow_network/images/image_batch_"
                 + str(mini_epochs_index) + "_decision_" + str(decision) + ".png")
 
@@ -454,7 +457,7 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
     print("Supervised Training")
     fast_net.unfreeze()
     fast_net.train()
-    fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
+    fast_net_optimizer = optim.RMSprop(fast_net.parameters(), lr=lr_fast)
     criterion = nn.CrossEntropyLoss()
     if from_files is True:
         print("Loading parameters")
@@ -476,11 +479,12 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
                 print("loss_fast_" + str(round(loss_fast.item(), 10)))
             if show_image is True:
                 save_image(image=image, mini_epochs_index=batch_index, decision=decision)
-            if loss_fast > 0.6 and j > 5:
-                print("restart net")
-                fast_net = FastNet(2)
-                fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
-                j = 0
+            # restart_epoch = 5
+            # if loss_fast > 0.6 and j > restart_epoch:
+            #     print("restart net")
+            #     fast_net = FastNet(2)
+            #     fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
+            #     j = 0
     if save_files is True:
         print("Saving parameters")
         fast_net_save_files(fast_net)
@@ -501,13 +505,14 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
             mini_epochs_index = editing_steps
             output_fast, output_top_down = slow_net(image)
             loss_output = criterion_output_loss(output_fast)
-            if show_image is True:
-                save_image(image=image, mini_epochs_index=mini_epochs_index, decision="9")
+            if show_image:
+                a = np.array(image.detach())
+                save_image(image=torch.tensor([index_to_image(a)]),
+                           mini_epochs_index=mini_epochs_index+10, decision=1)
             while loss_output.item() > threshold and mini_epochs_index >= 0:
                 slow_net.train()
                 slow_net_optimizer.zero_grad()
-                image1 = image + output_top_down
-                image2[:, :, 0] = image1[:, :, 0]/torch.max(image1[:, :, 0])
+                image = (image + output_top_down)/torch.max(image + output_top_down)
                 output_fast, output_top_down = slow_net(image)
                 loss_output = criterion_output_loss(output_fast)
                 loss_output.backward(retain_graph=True)
@@ -515,10 +520,12 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
                 if print_values is True:
                     print("output_fast_" + str(np.array(output_fast.detach())))
                     print("LossOutput_" + str(np.array(loss_output.detach())))
+                    print("max_" + str(torch.max(image[:, :, 0])))
                 decision = net_decision(output_fast)
-                if show_image is True:
-                    save_image(image=index_to_image(image).unsqueeze(0), mini_epochs_index=mini_epochs_index,
-                               decision=decision)
+                if show_image:
+                    a = np.array(image.detach())
+                    save_image(image=torch.tensor([index_to_image(a)]),
+                               mini_epochs_index=mini_epochs_index, decision=decision)
                 mini_epochs_index += -1
                 check_fast(slow_net=slow_net, line=line)
 
@@ -526,10 +533,10 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
 def __main__(categories=2, line=2,
              count_unsupervised=1,
              lr_supervised=0.001, lr_unsupervised=0.01,
-             random_sample=True, batch_size=10,
-             num_epochs_supervised=100, print_values_supervised=True,
+             random_sample=False, batch_size=25,
+             num_epochs_supervised=1, print_values_supervised=True,
              from_files_supervised=True, save_files_supervised=True,
-             num_epochs_unsupervised=1, threshold=0,
+             num_epochs_unsupervised=1, threshold=-1,
              editing_steps=20,
              show_image=True, print_values_unsupervised=True,
              super_epochs=1):
@@ -552,5 +559,5 @@ def __main__(categories=2, line=2,
                                       line=line, threshold=threshold)
 
 
-# create_data_sets(20, False)
+# create_data_sets(50, False)
 __main__()
