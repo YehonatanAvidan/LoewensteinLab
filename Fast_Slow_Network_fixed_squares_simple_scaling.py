@@ -14,15 +14,14 @@ class SquareDataSet(Dataset):
     def __init__(self, size=28, line=2, random_sample=False, len_data_set=100):
         self.samples = []
         for i in range(len_data_set):
-            a = np.random.uniform(0.0, 1.0)
-            if a >= 0.5:
+            if i <= len_data_set/2:
                 x = (create_squares(size, line, random_sample), 1)
                 self.samples.append(x)
-            if 0.25 <= a < 0.5:
-                x = (create_random_lines(size, line, random_sample), 0)
-                self.samples.append(x)
-            if a < 0.25:
+            if len_data_set/2 < i <= (3 * len_data_set)/4:
                 x = (create_random(size, line, random_sample), 0)
+                self.samples.append(x)
+            if i > (3 * len_data_set)/4:
+                x = (create_random_lines(size, line, random_sample), 0)
                 self.samples.append(x)
 
     def __len__(self):
@@ -34,18 +33,20 @@ class SquareDataSet(Dataset):
 
 class IndexSquareDataSet(Dataset):
 
-    def __init__(self, size=28, line=2, random_sample=False, len_data_set=100):
+    def __init__(self, size, line, random_sample, len_data_set):
         self.samples = []
         for i in range(len_data_set):
-            a = np.random.uniform(0.0, 1.0)
-            if a >= 0.5:
-                x = (image_to_index(create_squares(size, line, random_sample).unsqueeze(0)), 1)
+            if i <= len_data_set/2:
+                image = image_to_index(create_squares(size, line, random_sample).unsqueeze(0))
+                x = (image, 1)
                 self.samples.append(x)
-            if 0.25 <= a < 0.5:
-                x = (image_to_index(create_random_lines(size, line, random_sample).unsqueeze(0)), 0)
+            if len_data_set/2 < i <= (3 * len_data_set)/4:
+                image = image_to_index(create_random(size, line, random_sample).unsqueeze(0))
+                x = (image, 0)
                 self.samples.append(x)
-            if a < 0.25:
-                x = (image_to_index(create_random(size, line, random_sample).unsqueeze(0)), 0)
+            if i > (3 * len_data_set)/4:
+                image = image_to_index(create_random_lines(size, line, random_sample).unsqueeze(0))
+                x = (image, 0)
                 self.samples.append(x)
 
     def __len__(self):
@@ -556,7 +557,7 @@ def __main__(categories=2, line=2,
              lr_supervised=0.001, lr_unsupervised=0.01,
              random_sample=False, batch_size=25,
              num_epochs_supervised=100, print_values_supervised=True,
-             from_files_supervised=True, save_files_supervised=True,
+             from_files_supervised=False, save_files_supervised=True,
              num_epochs_unsupervised=1, threshold=-1,
              editing_steps=20, per=0, scaled=True,
              show_image=True, print_values_unsupervised=True,
