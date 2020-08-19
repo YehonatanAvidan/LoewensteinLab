@@ -280,14 +280,8 @@ def data_set_from_files(colab):
     return data_set
 
 
-def create_data_sets(len_data_set, show_image):
-    data_set = SquareDataSet(size=28, line=2, random_sample=False, len_data_set=len_data_set)
-    print("data_set finished")
-    if show_image:
-        for i in range(10):
-            a = random.randint(0, len_data_set)
-            show_image(image=data_set[a][0].unsqueeze(0), mini_step=0, step=i, decision=data_set[a][1])
-    index_data_set = IndexSquareDataSet(size=28, line=2, random_sample=False, len_data_set=len_data_set)
+def create_data_sets(len_data_set, show_image, random_sample, square_per):
+    index_data_set = IndexSquareDataSet(size=28, line=2, random_sample=random_sample, len_data_set=len_data_set, square_per=square_per)
     if show_image:
         for i in range(10):
             a = random.randint(0, len_data_set)
@@ -295,8 +289,6 @@ def create_data_sets(len_data_set, show_image):
             show_image(image=image.unsqueeze(0),
                        mini_step=1, step=i, decision=index_data_set[a][1])
     print("index_data_set finished")
-    data_set_save_files(data_set, False)
-    print("data_set saved")
     index_data_set_save_files(index_data_set, False)
     print("index_data_set saved")
 

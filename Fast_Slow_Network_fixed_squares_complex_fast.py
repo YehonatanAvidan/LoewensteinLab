@@ -61,7 +61,8 @@ class IndexCornersDataSet(Dataset):
     def __init__(self, size=28, line=2, random_sample=False, len_data_set=100, per=10, scaled=True):
         self.samples = []
         for i in range(len_data_set):
-            self.samples.append((image_to_index(create_corners(size, line, random_sample, per, scaled).unsqueeze(0)), 1))
+            self.samples.append((image_to_index(create_corners
+                                                (size, line, random_sample, per, scaled).unsqueeze(0)), 1))
 
     def __len__(self):
         return len(self.samples)
@@ -284,14 +285,9 @@ def data_set_from_files(colab):
     return data_set
 
 
-def create_data_sets(len_data_set, show_image, random_sample):
-    data_set = SquareDataSet(size=28, line=2, random_sample=random_sample, len_data_set=len_data_set)
-    print("data_set finished")
-    if show_image:
-        for i in range(10):
-            a = random.randint(0, len_data_set)
-            show_image(image=data_set[a][0].unsqueeze(0), mini_step=0, step=i, decision=data_set[a][1])
-    index_data_set = IndexSquareDataSet(size=28, line=2, random_sample=random_sample, len_data_set=len_data_set)
+def create_data_sets(len_data_set, show_image, random_sample, square_per):
+    index_data_set = IndexSquareDataSet(size=28, line=2, random_sample=random_sample,
+                                        len_data_set=len_data_set, square_per=square_per)
     if show_image:
         for i in range(10):
             a = random.randint(0, len_data_set)
@@ -299,8 +295,6 @@ def create_data_sets(len_data_set, show_image, random_sample):
             show_image(image=image.unsqueeze(0),
                        mini_step=1, step=i, decision=index_data_set[a][1])
     print("index_data_set finished")
-    data_set_save_files(data_set, False)
-    print("data_set saved")
     index_data_set_save_files(index_data_set, False)
     print("index_data_set saved")
 
@@ -315,7 +309,6 @@ class FastNet(nn.Module):
         self.fc1 = nn.Linear(16 * self.filters * 2, 128)
         self.fc2 = nn.Linear(128, 10)
         self.fc3 = nn.Linear(10, categories)
-
 
     def forward(self, x):
         x = x.float()
@@ -410,13 +403,7 @@ def image_to_index(image):
 
 
 def index_to_image(index_image):
-    index_image = index_image[0]
-    index_image[:, 1:3] = ((index_image[:, 1:3]) * 27)
-    index_image[:, 0] = index_image[:, 0]
-    image = np.zeros((28, 28))
-    for index in index_image:
-        if 0 <= index[1] <= 27 and 0 <= index[2] <= 27:
-            image[int(index[1]), int(index[2])] = index[0]
+    image = index_image[0, 0, :]
     return image
 
 
@@ -450,8 +437,8 @@ def fast_optimizer_from_files():
     return fast_optimizer
 
 
-def check_fast(slow_net, line):
-    test_image = image_to_index(create_squares(line=line).unsqueeze(0))
+def check_fast(slow_net, data_set):
+    test_image = data_set[0][0].unsqueeze(0)
     output_fast, __ = slow_net(test_image)
     output_fast_array = np.array(output_fast.detach())
     print("Check_" + str(output_fast_array))
@@ -485,7 +472,7 @@ def criterion_output_loss(x):
     return loss
 
 
-def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show_image,
+def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast,
                      from_files, save_files, batch_size):
     print("Supervised Training")
     fast_net.unfreeze()
@@ -524,10 +511,10 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
     return fast_net
 
 
-def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
+def unsupervised_train_iterations(data_set, slow_net, num_epochs,
                                   editing_steps, lr, threshold, show_image, print_values):
     print("Unsupervised Training")
-    output_check = check_fast(slow_net=slow_net, line=line)
+    output_check = check_fast(slow_net=slow_net, data_set=data_set)
     slow_net.freeze_fast()
     slow_net_optimizer = optim.Adam(filter(lambda p: p.requires_grad, slow_net.parameters()), lr=lr)
     slow_net.unfreeze_fast()
@@ -559,13 +546,13 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
                     save_image(image=torch.tensor([index_to_image(a)]),
                                mini_epochs_index=mini_epochs_index, decision=decision)
                 mini_epochs_index += -1
-                check_fast(slow_net=slow_net, line=line)
+                check_fast(slow_net=slow_net, data_set=data_set)
 
 
 def __main__(categories=2, line=2,
              count_unsupervised=1,
              lr_supervised=10**-3, lr_unsupervised=0.01,
-             random_sample=False, batch_size=100,
+             random_sample=False, batch_size=10,
              num_epochs_supervised=30, print_values_supervised=True,
              from_files_supervised=False, save_files_supervised=True,
              num_epochs_unsupervised=1, threshold=-1,
@@ -581,16 +568,16 @@ def __main__(categories=2, line=2,
                                     lr_fast=lr_supervised, show_image=False,
                                     from_files=from_files_supervised, save_files=save_files_supervised,
                                     batch_size=batch_size)
-        # slow_net = SlowNet(fast_net, top_down_net)
-        # data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample,
-        #                                per=per, scaled=scaled)
-        # unsupervised_train_iterations(data_set=data_set, slow_net=slow_net,
-        #                               num_epochs=num_epochs_unsupervised,
-        #                               print_values=print_values_unsupervised,
-        #                               editing_steps=editing_steps,
-        #                               lr=lr_unsupervised, show_image=show_image,
-        #                               line=line, threshold=threshold)
+        slow_net = SlowNet(fast_net, top_down_net)
+        data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample,
+                                       per=per, scaled=scaled)
+        unsupervised_train_iterations(data_set=data_set, slow_net=slow_net,
+                                      num_epochs=num_epochs_unsupervised,
+                                      print_values=print_values_unsupervised,
+                                      editing_steps=editing_steps,
+                                      lr=lr_unsupervised, show_image=show_image,
+                                      line=line, threshold=threshold)
 
 
-create_data_sets(1000, False, random_sample=True)
+create_data_sets(len_data_set=30, show_image=False, random_sample=True, square_per=0.5)
 __main__()
