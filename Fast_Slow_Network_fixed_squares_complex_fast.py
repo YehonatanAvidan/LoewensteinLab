@@ -305,27 +305,31 @@ def create_data_sets(len_data_set, show_image):
 
 
 class FastNet(nn.Module):
-    def __init__(self, categories):
+    def __init__(self, categories, filters=4):
         super(FastNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 5)
+        self.filters = filters
+        self.conv1 = nn.Conv2d(3, filters, 5)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(32, 64, 5)
-        self.fc1 = nn.Linear(128, 10)
-        self.fc2 = nn.Linear(10, categories)
+        self.conv2 = nn.Conv2d(filters, filters * 2, 5)
+        self.fc1 = nn.Linear(16 * self.filters * 2, 128)
+        self.fc2 = nn.Linear(128, 10)
+        self.fc3 = nn.Linear(10, categories)
 
 
     def forward(self, x):
-        x = x.view(-1, 28, 28, 3).float()
+        x = x.float()
         x = self.conv1(x)
         x = F.relu(x)
         x = self.pool(x)
         x = self.conv2(x)
         x = F.relu(x)
         x = self.pool(x)
-        x = x.view(-1, 128)
+        x = x.view(-1, 2 * self.filters * 16)
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
+        x = F.relu(x)
+        x = self.fc3(x)
         x = F.softmax(x)
         output = x.float()
         return output
@@ -391,13 +395,16 @@ def index_scaling(image, output_top_down):
 
 def image_to_index(image):
     image = image[0]
-    index_image = []
+    index_image_value = []
+    index_image_x = []
+    index_image_y = []
     for i in range(image.size()[0]):
         for j in range(image.size()[1]):
-            index_image.append([image[i, j], i, j])
-    index_image = torch.tensor(index_image).float()
-    index_image[:, 1:3] = index_image[:, 1:3] / 27
-    index_image[:, 0] = index_image[:, 0]
+            index_image_value.append(image[i, j])
+            index_image_y.append(i/27)
+            index_image_x.append(j/27)
+    index_image = torch.tensor([index_image_value, index_image_x, index_image_y])
+    index_image = index_image.view(3, 28, 28)
     return index_image
 
 
@@ -484,33 +491,32 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
     fast_net.train()
     fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
     criterion = nn.CrossEntropyLoss()
-    if from_files is True:
+    if from_files:
         print("Loading parameters")
         fast_net = fast_net_from_files(fast_net)
         fast_net_optimizer = fast_optimizer_from_files()
     for j in range(num_epochs):
-        if print_values is True:
+        error_count = 0
+        if print_values:
             print("Epoch No." + str(j + 1))
             data_loader = DataLoader(data_set, batch_size=batch_size, shuffle=True)
         for batch_index, (image, target) in enumerate(data_loader):
             #  fast
             fast_net_optimizer.zero_grad()
             output_fast = fast_net(image)
-            decision = np.array(torch.argmax(output_fast.detach()))
             loss_fast = criterion(output_fast, target)
             loss_fast.backward(retain_graph=True)
             fast_net_optimizer.step()
-            if print_values is True:
+            for i in range(batch_size):
+                decision = torch.argmax(output_fast[i])
+                if decision.item() != target[i].item():
+                    error_count += 1
+            if print_values:
                 print("loss_fast_" + str(round(loss_fast.item(), 10)))
-            if show_image is True:
-                save_image(image=image, mini_epochs_index=batch_index, decision=decision)
-            # restart_epoch = 5
-            # if loss_fast > 0.6 and j > restart_epoch:
-            #     print("restart net")
-            #     fast_net = FastNet(2)
-            #     fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
-            #     j = 0
-    if save_files is True:
+        if print_values:
+            error = error_count/len(data_set)
+            print("Error_" + str(error))
+    if save_files and loss_fast < 0.0001:
         print("Saving parameters")
         fast_net_save_files(fast_net)
         fast_optimizer_save_files(fast_net_optimizer)
@@ -557,33 +563,33 @@ def unsupervised_train_iterations(data_set, slow_net, line, num_epochs,
 
 def __main__(categories=2, line=2,
              count_unsupervised=1,
-             lr_supervised=0.001, lr_unsupervised=0.01,
-             random_sample=False, batch_size=25,
-             num_epochs_supervised=100, print_values_supervised=True,
+             lr_supervised=10**-3, lr_unsupervised=0.01,
+             random_sample=False, batch_size=100,
+             num_epochs_supervised=30, print_values_supervised=True,
              from_files_supervised=False, save_files_supervised=True,
              num_epochs_unsupervised=1, threshold=-1,
              editing_steps=20, per=0, scaled=True,
              show_image=True, print_values_unsupervised=True,
              super_epochs=1):
-    fast_net = FastNet(categories=categories)
     top_down_net = TopDownNet(categories=categories)
     for epoch in range(super_epochs):
         data_set = index_data_set_from_files(False)
+        fast_net = FastNet(categories=categories, filters=4)
         fast_net = supervised_train(data_set=data_set, fast_net=fast_net,
                                     num_epochs=num_epochs_supervised, print_values=print_values_supervised,
                                     lr_fast=lr_supervised, show_image=False,
                                     from_files=from_files_supervised, save_files=save_files_supervised,
                                     batch_size=batch_size)
-        slow_net = SlowNet(fast_net, top_down_net)
-        data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample,
-                                       per=per, scaled=scaled)
-        unsupervised_train_iterations(data_set=data_set, slow_net=slow_net,
-                                      num_epochs=num_epochs_unsupervised,
-                                      print_values=print_values_unsupervised,
-                                      editing_steps=editing_steps,
-                                      lr=lr_unsupervised, show_image=show_image,
-                                      line=line, threshold=threshold)
+        # slow_net = SlowNet(fast_net, top_down_net)
+        # data_set = IndexCornersDataSet(line=line, len_data_set=count_unsupervised, random_sample=random_sample,
+        #                                per=per, scaled=scaled)
+        # unsupervised_train_iterations(data_set=data_set, slow_net=slow_net,
+        #                               num_epochs=num_epochs_unsupervised,
+        #                               print_values=print_values_unsupervised,
+        #                               editing_steps=editing_steps,
+        #                               lr=lr_unsupervised, show_image=show_image,
+        #                               line=line, threshold=threshold)
 
 
-# create_data_sets(50, False)
+# create_data_sets(1000, False)
 __main__()

@@ -464,6 +464,7 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
         fast_net = fast_net_from_files(fast_net)
         fast_net_optimizer = fast_optimizer_from_files()
     for j in range(num_epochs):
+        error_count = 0
         if print_values is True:
             print("Epoch No." + str(j + 1))
             data_loader = DataLoader(data_set, batch_size=batch_size, shuffle=True)
@@ -485,6 +486,9 @@ def supervised_train(data_set, fast_net, num_epochs, print_values, lr_fast, show
             #     fast_net = FastNet(2)
             #     fast_net_optimizer = optim.Adam(fast_net.parameters(), lr=lr_fast)
             #     j = 0
+        if print_values:
+            error = error_count/len(data_set)
+            print("Error_" + str(error))
     if save_files is True:
         print("Saving parameters")
         fast_net_save_files(fast_net)
