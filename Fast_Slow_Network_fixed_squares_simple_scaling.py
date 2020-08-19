@@ -11,16 +11,16 @@ import random
 
 class SquareDataSet(Dataset):
 
-    def __init__(self, size=28, line=2, random_sample=False, len_data_set=100):
+    def __init__(self, size, line, random_sample, len_data_set, square_per):
         self.samples = []
         for i in range(len_data_set):
-            if i <= len_data_set/2:
+            if i <= len_data_set * square_per:
                 x = (create_squares(size, line, random_sample), 1)
                 self.samples.append(x)
-            if len_data_set/2 < i <= (3 * len_data_set)/4:
+            if len_data_set * square_per < i <= len_data_set * ((1 - square_per) / 2):
                 x = (create_random(size, line, random_sample), 0)
                 self.samples.append(x)
-            if i > (3 * len_data_set)/4:
+            if i > len_data_set * ((1 - square_per) / 2):
                 x = (create_random_lines(size, line, random_sample), 0)
                 self.samples.append(x)
 
@@ -33,18 +33,18 @@ class SquareDataSet(Dataset):
 
 class IndexSquareDataSet(Dataset):
 
-    def __init__(self, size, line, random_sample, len_data_set):
+    def __init__(self, size, line, random_sample, len_data_set, square_per):
         self.samples = []
         for i in range(len_data_set):
-            if i <= len_data_set/2:
+            if i <= len_data_set * square_per:
                 image = image_to_index(create_squares(size, line, random_sample).unsqueeze(0))
                 x = (image, 1)
                 self.samples.append(x)
-            if len_data_set/2 < i <= (3 * len_data_set)/4:
+            if len_data_set * square_per < i <= len_data_set * ((1 - square_per) / 2):
                 image = image_to_index(create_random(size, line, random_sample).unsqueeze(0))
                 x = (image, 0)
                 self.samples.append(x)
-            if i > (3 * len_data_set)/4:
+            if i > len_data_set * ((1 - square_per) / 2):
                 image = image_to_index(create_random_lines(size, line, random_sample).unsqueeze(0))
                 x = (image, 0)
                 self.samples.append(x)
